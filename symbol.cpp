@@ -16,8 +16,16 @@
 #include <libelf.h>
 
 #include <symbol/symbol.hpp>
+std::ostream &operator<<(std::ostream &os, const Symbols &symbols) {
+  std::cout << "Function symbols in " << symbols.m_elf_filename << ":\n";
+  std::cout << "-----------------------------------------------------\n";
+  for (auto symbol : symbols.m_symbols) {
+    std::cout << symbol << "\n";
+  }
+  std::cout << "-----------------------------------------------------\n";
+}
 
-bool Symbol::initialize(std::string &err_message) {
+bool Symbols::initialize(std::string &err_message) {
   int elf_fd;
   Elf *elf_handle;
   Elf_Scn *scn_iterator{nullptr};
@@ -173,25 +181,60 @@ bool Symbol::initialize(std::string &err_message) {
   return true;
 }
 
-bool Symbol::scan(std::string &err_message) {
+bool Symbols::scan(std::string &err_message) {
   if (!m_initialized) {
     err_message = "Cannot scan before initialization.";
     return false;
   }
 
   size_t index = 0;
-  for (size_t index = 0; index < m_sym_section_data.size();) {
+  for (size_t index = 0; index < m_sym_section_data.size();
+       index += sizeof(Elf64_Sym)) {
     Elf64_Sym *current_sym =
         (Elf64_Sym *)m_sym_section_data.get(m_sym_section_data.start() + index);
+
     auto current_name_sym_string_offset = current_sym->st_name;
     char *current_sym_name = (char *)m_sym_string_section_data.get(
         m_sym_string_section_data.start() + current_name_sym_string_offset);
 
-    if (m_debug && current_sym_name != nullptr) {
-      std::cout << "Current symbol name: " << current_sym_name << "\n";
+    if (ELF64_ST_TYPE(current_sym->st_info) != STT_FUNC) {
+      if (m_debug) {
+        std::cout << "Skipping " << current_sym_name
+                  << " because it is not a function.\n";
+      }
+      continue;
     }
-    index += sizeof(Elf64_Sym);
+
+    auto symbol = Symbol(std::string{current_sym_name}, current_sym->st_value);
+    m_symbols.push_back(symbol);
+
+    if (m_debug && current_sym_name != nullptr) {
+      std::cout << "Discovered " << symbol << "\n";
+    }
   }
   m_scanned = true;
+  return true;
+}
+
+bool Symbols::output(std::ostream &output_stream, size_t first_x_bytes,
+                     std::string &err_message) {
+  for (auto symbol : m_symbols) {
+    char *prologue_bytes = nullptr;
+    if ((prologue_bytes = m_text_section_data.get(symbol.m_symbol_address))) {
+      if (!(output_stream << symbol.m_symbol_name.size()
+                        << symbol.m_symbol_name)) {
+        err_message = "Could not output symbol name and header for ." +
+                      symbol.m_symbol_name;
+        return false;
+      }
+      for (size_t i = 0; i < first_x_bytes; i++) {
+        if (!(output_stream << prologue_bytes[i])) {
+          err_message = "Could not output byte " + std::to_string(i) +
+                        " of the prologue of " + symbol.m_symbol_name;
+          return false;
+        }
+      }
+    }
+  }
   return true;
 }

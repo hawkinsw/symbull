@@ -6,12 +6,16 @@
 
 #include <args.hxx>
 
+const int PROLOGUE_LENGTH_DEFAULT{30};
+
 int main(int argc, char *argv[]) {
   args::ArgumentParser parser("Perform symbol scan on an ELF binary.");
   args::HelpFlag help(parser, "help", "Display this help menu", {'h', "help"});
   args::Flag debug(parser, "debug", "Enable debugging.", {"d", "debug"});
   args::ValueFlag<std::string> outfile_param(
       parser, "outfile", "Store output to a file", {"o", "outfile"});
+  args::ValueFlag<int> prologue_length(
+      parser, "prologue-length", "Number of bytes of the prologue to capture for analysis", {"l", "prologue-length"});
   args::Positional<std::string> binary(
       parser, "binary", "The name of the binary file to disassemble.",
       args::Options::Required);
@@ -50,11 +54,15 @@ int main(int argc, char *argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  Symbol *symbol = nullptr;
-  symbol = new Symbol(binary.Get(), ".text");
+  if (!prologue_length) {
+    *prologue_length = PROLOGUE_LENGTH_DEFAULT;
+  }
+
+  Symbols *symbols = nullptr;
+  symbols = new Symbols(binary.Get(), ".text", debug);
 
   std::string initialization_error_msg{""};
-  if (!symbol->initialize(initialization_error_msg)) {
+  if (!symbols->initialize(initialization_error_msg)) {
     std::cerr << "Initialization failed: " << initialization_error_msg << "\n";
     if (outfile_stream.is_open()) {
       outfile_stream.close();
@@ -63,7 +71,7 @@ int main(int argc, char *argv[]) {
   }
 
   std::string scan_error_msg{""};
-  if (!symbol->scan(scan_error_msg)) {
+  if (!symbols->scan(scan_error_msg)) {
     std::cerr << "scan failed: " << scan_error_msg << "\n";
     if (outfile_stream.is_open()) {
       outfile_stream.close();
@@ -71,11 +79,24 @@ int main(int argc, char *argv[]) {
     exit(EXIT_FAILURE);
   }
 
+  if (debug) {
+    std::cout << *symbols << "\n";
+  }
+
+  std::string output_error_msg{""};
+  if (!symbols->output(output_stream, *prologue_length, output_error_msg)) {
+    std::cerr << "output failed: " << output_error_msg << "\n";
+    if (outfile_stream.is_open()) {
+      outfile_stream.close();
+    }
+    exit(EXIT_FAILURE);
+  }
+
+  delete symbols;
+
   if (outfile_stream.is_open()) {
     outfile_stream.close();
   }
-
-  delete symbol;
 
   return EXIT_SUCCESS;
 }
