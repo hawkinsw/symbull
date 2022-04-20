@@ -23,6 +23,7 @@ std::ostream &operator<<(std::ostream &os, const Symbols &symbols) {
     std::cout << symbol << "\n";
   }
   std::cout << "-----------------------------------------------------\n";
+  return os;
 }
 
 bool Symbols::initialize(std::string &err_message) {
